@@ -14,6 +14,8 @@ import sys
 # CONFIG
 # ---------------------------
 BASE_DIR = os.path.expanduser("~/RaspController")
+ZIP_URL = "https://raw.githubusercontent.com/AirysDark/RaspLink/main/backend_payload.zip"
+
 VENV = os.path.join(BASE_DIR, "venv/bin/activate")
 HEALTH_URL = "http://127.0.0.1:{port}/health"
 
@@ -24,7 +26,7 @@ HEALTH_DELAY = 2
 # ---------------------------
 # HELPERS
 # ---------------------------
-def run(cmd, timeout=15):
+def run(cmd, timeout=20):
     try:
         result = subprocess.run(
             cmd,
@@ -40,11 +42,7 @@ def run(cmd, timeout=15):
 
 
 def emit(status, **kwargs):
-    payload = {
-        "status": status,
-        **kwargs
-    }
-    print(json.dumps(payload))
+    print(json.dumps({"status": status, **kwargs}))
     sys.stdout.flush()
 
 
@@ -91,6 +89,35 @@ def wait_for_health(port):
 
 
 # ---------------------------
+# BACKEND INSTALL (NEW)
+# ---------------------------
+def install_backend():
+
+    emit("installing_backend")
+
+    # Ensure tools
+    run("sudo apt update")
+    run("sudo apt install -y unzip wget python3-venv python3-full")
+
+    # Clean previous install
+    run("rm -rf ~/RaspController backend_payload.zip")
+
+    # Download
+    emit("downloading_backend")
+    run(f"wget -O backend_payload.zip {ZIP_URL}")
+
+    # Unzip
+    emit("extracting_backend")
+    run("unzip -o backend_payload.zip")
+
+    # Install
+    emit("running_install")
+    run("cd ~/RaspController && python3 install.py")
+
+    return True
+
+
+# ---------------------------
 # BACKEND CHECK
 # ---------------------------
 def backend_exists():
@@ -134,9 +161,7 @@ def main():
 
     emit("starting")
 
-    # ---------------------------
-    # PYTHON CHECK
-    # ---------------------------
+    # Python check
     if not run("python3 --version"):
         emit("failed", error="python_missing")
         return
@@ -144,13 +169,17 @@ def main():
     emit("python_ok")
 
     # ---------------------------
-    # BACKEND CHECK
+    # BACKEND CHECK / INSTALL
     # ---------------------------
     if not backend_exists():
-        emit("failed", error="backend_missing")
-        return
+        emit("backend_missing")
+        install_backend()
 
-    emit("backend_found")
+        if not backend_exists():
+            emit("failed", error="install_failed")
+            return
+
+    emit("backend_ready")
 
     # ---------------------------
     # CHECK EXISTING API
@@ -169,7 +198,7 @@ def main():
     emit("firewall_checked")
 
     # ---------------------------
-    # SYSTEMD RESTART
+    # SYSTEMD
     # ---------------------------
     if command_exists("systemctl"):
         emit("systemd_restart")
@@ -214,9 +243,6 @@ def main():
             emit("ready", port=port, via="fallback")
             return
 
-    # ---------------------------
-    # FAILURE
-    # ---------------------------
     emit("failed", error="api_not_running")
 
 
